@@ -3,13 +3,25 @@ from django.http import HttpResponse
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
+import os
+import joblib
+from .forms import MessageForm
+from django.http import HttpResponseRedirect
 
 from django.contrib.auth import authenticate, login, logout
+from .forms import ReplyForm
 
-from .models import Room, Topic, Message, User
+
+
+
+from .models import Room, Topic, Message, User, Reply
 from .forms import RoomForm, UserForm, MyUserCreationForm
+model_path = os.path.join(os.path.dirname(__file__), 'spam_detection', 'mySVCModel.pkl')
+model = joblib.load(model_path)
 
-# Create your views here.
+
+
+
 
 # rooms=[
 #     {'id':1,'name':'Lets learn django in orchid!'},
@@ -17,6 +29,9 @@ from .forms import RoomForm, UserForm, MyUserCreationForm
 #     {'id':3,'name':'Lets learn rest api in orchid!'},
     
 # ]
+from django.views.decorators.cache import cache_control
+
+@cache_control(max_age=0, no_cache=True, no_store=True, must_revalidate=True)
 
 def loginPage(request):
     page= 'login'
@@ -44,6 +59,7 @@ def loginPage(request):
 def logoutUser(request):
     logout(request)
     return redirect('home')
+  
 
 
 def registerPage(request):
@@ -80,21 +96,60 @@ def home(request):
     context={'rooms':rooms, 'topics': topics, 'room_count': room_count,'room_messages':room_messages}
     return render(request, 'base/home.html',context)
 
+@login_required
 def room(request, pk):
-    room=Room.objects.get(id=pk)
-    room_messages=room.message_set.all()
-    participants=room.participants.all()
+    room = Room.objects.get(id=pk)
+    room_messages = room.message_set.filter(parent__isnull=True)
+    participants = room.participants.all()
 
-    if request.method=="POST":
-        message=Message.objects.create(
-            user= request.user,
-            room=room,
-            body=request.POST.get('body')
-        )
-        room.participants.add(request.user)
-        return redirect('room', pk=room.id)
-    context={'room': room, 'room_messages':room_messages,'participants':participants}
-    return render(request, 'base/room.html',context)
+    if request.method == "POST":
+        parent_id = request.POST.get('parent_id')
+        parent_message = Message.objects.get(id=parent_id) if parent_id else None
+
+        message_body = request.POST.get('body')
+
+        # Check if the message is spam
+        is_spam = model.predict([message_body])
+        if is_spam[0] == 'spam':
+            messages.warning(request, 'Your message is flagged as spam.')
+        else:
+            message = Message.objects.create(
+                user=request.user,
+                room=room,
+                body=message_body,
+                parent=parent_message
+            )
+            room.participants.add(request.user)
+            return redirect('room', pk=room.id)
+
+    # Fetch nested replies for each message
+    for message in room_messages:
+        message.nested_replies = message.replies.all().prefetch_related('child_replies')
+
+    context = {'room': room, 'room_messages': room_messages, 'participants': participants}
+    return render(request, 'base/room.html', context)
+
+
+def reply_to_message(request, pk):
+    if request.method == 'POST':
+        parent_message = Message.objects.get(id=pk)
+        reply_body = request.POST.get('reply_body')
+
+        # Check if the reply is spam
+        is_spam = model.predict([reply_body])
+        if is_spam[0] == 'spam':
+            messages.warning(request, 'Your reply is flagged as spam.')
+        else:
+            Reply.objects.create(
+                message=parent_message,
+                user=request.user,
+                reply=reply_body
+            )
+
+    return redirect('room', pk=parent_message.room.id)
+
+
+
 
 def userProfile(request, pk):
     user= User.objects.get(id=pk)
@@ -164,6 +219,25 @@ def deleteMessage(request, pk):
      return redirect('home')
     return render(request, 'base/delete.html', {'obj':message})
 @login_required(login_url='login')
+def editMessage(request, pk):
+    message = Message.objects.get(id=pk)
+
+    # Check if the logged-in user is the owner of the message
+    if request.user != message.user:
+        return HttpResponse('You are not allowed here')
+
+    if request.method == 'POST':
+        
+        form = MessageForm(request.POST, instance=message)
+        if form.is_valid():
+            form.save()
+            return redirect('home')
+    else:
+       
+        form = MessageForm(instance=message)
+
+    return render(request, 'base/edit.html', {'form': form, 'obj': message})
+@login_required(login_url='login')
 def updateUser(request):
     user= request.user
     form= UserForm(instance=user)
@@ -182,6 +256,27 @@ def topicsPage(request):
 def activityPage(request):
     room_messages=Message.objects.all()
     return render(request, 'base/activity.html',{'room_messages': room_messages})
+
+
+@login_required(login_url='login')
+def replyMessage(request, message_id):
+    message = Message.objects.get(id=message_id)
+
+    if request.method == 'POST':
+        reply_body = request.POST.get('body')
+        # Create a new message object for the reply
+        reply_message = Message.objects.create(
+            user=request.user,
+            room=message.room,
+            body=reply_body,
+            parent=message  # Set the parent message for the reply
+        )
+        # Add the reply message to the room participants
+        message.room.participants.add(request.user)
+        return redirect('room', pk=message.room.id)
+
+    return render(request, 'base/reply_message.html')
+
    
 
 

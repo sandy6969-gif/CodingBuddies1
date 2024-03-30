@@ -17,4 +17,19 @@ class UserForm(ModelForm):
     class Meta:
         model= User
         fields=['avatar','name','username', 'email','bio']
+from django import forms
+
+class ReplyForm(forms.Form):
+    # Define the fields for the form here
+    # Example:
+    # reply = forms.CharField(max_length=100)
+    pass
+from django import forms
+from .models import Message
+
+class MessageForm(forms.ModelForm):
+    class Meta:
+        model = Message
+        fields = ['body']  # Add other fields if needed
+
         

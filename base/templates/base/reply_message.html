@@ -1,0 +1,18 @@
+{% extends 'main.html' %}
+
+{% block content %}
+    <main class="profile-page layout layout--2">
+        <div class="container">
+            <div class="reply-message">
+                <h2>Reply to Message</h2>
+                <form method="POST">
+                    {% csrf_token %}
+                    <textarea name="body" placeholder="Write your reply here..."></textarea>
+                    <button type="submit">Send Reply</button>
+                    
+                    
+                </form>
+            </div>
+        </div>
+    </main>
+{% endblock %}

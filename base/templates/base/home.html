@@ -1,5 +1,6 @@
 {% extends 'main.html'%}
 {%block content%}
+{%load static%}
     
     <main class="layout layout--3">
       <div class="container">
@@ -48,6 +49,8 @@
         <!-- Room List End -->
 
         <!-- Activities Start -->
+        <script src="{% static 'js/script1.js' %}" type="text/javascript"></script>
+
         {% include 'base/activity_component.html'%}
         
         <!-- Activities End -->
